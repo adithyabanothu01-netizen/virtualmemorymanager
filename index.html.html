@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Virtual Memory Manager Simulator</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            slate: {
+              850: '#131e32',
+              900: '#0f172a',
+              950: '#080d1a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Striped background for free memory segments */
+    .bg-stripes-slate {
+      background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.04) 75%, transparent 75%, transparent);
+      background-size: 16px 16px;
+    }
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    @keyframes subtle-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.93; transform: scale(0.998); }
+    }
+    .animate-pulse-glow {
+      animation: subtle-pulse 2.5s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen antialiased flex flex-col selection:bg-indigo-500 selection:text-white">
+
+  <!-- Header Navigation Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="p-2 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-lg text-white shadow-lg shadow-indigo-500/20">
+          <i data-lucide="cpu" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+            Virtual Memory Manager
+          </h1>
+          <p class="text-xs text-slate-400 font-mono">Operating System Contiguous Memory Simulation</p>
+        </div>
+      </div>
+
+      <!-- Strategy Badge & Actions -->
+      <div class="flex items-center space-x-3">
+        <div class="hidden sm:flex items-center px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-mono text-slate-300 space-x-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>STRATEGY: <strong id="activeStrategyBadge" class="text-indigo-400">FIRST FIT</strong></span>
+        </div>
+
+        <button onclick="openResetModal()" class="flex items-center space-x-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-2 rounded-lg border border-slate-700 transition">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+          <span>Reset RAM</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- External Fragmentation Alert Banner -->
+    <div id="fragAlert" class="hidden animate-pulse-glow bg-amber-950/70 border border-amber-500/50 rounded-xl p-4 text-amber-200 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div class="flex items-start space-x-3">
+        <div class="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0 mt-0.5">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h4 class="font-semibold text-amber-300 text-sm flex items-center gap-2">
+            EXTERNAL FRAGMENTATION DETECTED
+            <span class="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30 text-amber-200">OS Warning</span>
+          </h4>
+          <p id="fragAlertText" class="text-xs text-amber-200/90 mt-0.5">
+            Total free memory is adequate, but no single contiguous free block can accommodate the requested process.
+          </p>
+        </div>
+      </div>
+      <button onclick="executeCompaction()" class="shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2.5 rounded-lg shadow-md transition flex items-center space-x-2">
+        <i data-lucide="shrink" class="w-4 h-4"></i>
+        <span>Run Memory Compaction</span>
+      </button>
+    </div>
+
+    <!-- Real-time Memory Metrics Grid -->
+    <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+      <!-- Total Capacity -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow">
+        <span class="text-xs text-slate-400 font-medium">Total Capacity</span>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="metricTotal" class="text-2xl font-bold font-mono text-white">1000</span>
+          <span class="text-xs font-mono text-slate-500">KB</span>
+        </div>
+        <div class="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
+          <div class="bg-indigo-500 h-full w-full"></div>
+        </div>
+      </div>
+
+      <!-- Used Memory -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow">
+        <span class="text-xs text-slate-400 font-medium">Allocated RAM</span>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="metricUsed" class="text-2xl font-bold font-mono text-indigo-400">0</span>
+          <span id="metricUsedPct" class="text-xs font-mono text-indigo-400/80">0%</span>
+        </div>
+        <div class="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
+          <div id="barUsed" class="bg-indigo-500 h-full w-0 transition-all duration-300"></div>
+        </div>
+      </div>
+
+      <!-- Free Memory -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow">
+        <span class="text-xs text-slate-400 font-medium">Total Free RAM</span>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="metricFree" class="text-2xl font-bold font-mono text-emerald-400">1000</span>
+          <span id="metricFreePct" class="text-xs font-mono text-emerald-400/80">100%</span>
+        </div>
+        <div class="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
+          <div id="barFree" class="bg-emerald-500 h-full w-full transition-all duration-300"></div>
+        </div>
+      </div>
+
+      <!-- Max Contiguous Block -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow">
+        <span class="text-xs text-slate-400 font-medium">Max Free Block</span>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="metricMaxContig" class="text-2xl font-bold font-mono text-cyan-400">1000</span>
+          <span class="text-xs font-mono text-slate-500">KB</span>
+        </div>
+        <div class="text-[10px] text-slate-500 font-mono mt-2">Largest contiguous chunk</div>
+      </div>
+
+      <!-- Block Count -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow">
+        <span class="text-xs text-slate-400 font-medium">Total DLL Nodes</span>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="metricBlocks" class="text-2xl font-bold font-mono text-slate-200">1</span>
+          <span id="metricBlocksSub" class="text-[10px] font-mono text-slate-500">1 Free</span>
+        </div>
+        <div class="text-[10px] text-slate-500 font-mono mt-2">Doubly Linked List</div>
+      </div>
+
+      <!-- Waiting Queue -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow">
+        <span class="text-xs text-slate-400 font-medium">Waiting Queue</span>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="metricQueue" class="text-2xl font-bold font-mono text-amber-400">0</span>
+          <span class="text-xs font-mono text-slate-500">Procs</span>
+        </div>
+        <div class="text-[10px] text-slate-500 font-mono mt-2">Blocked allocation requests</div>
+      </div>
+    </section>
+
+    <!-- Visual Memory Layout Bar Section -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-3">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="layers" class="w-4 h-4 text-indigo-400"></i>
+            Interactive Memory Space Map
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Simulated physical RAM divided into contiguous memory blocks. Click any allocated block to release it.</p>
+        </div>
+
+        <div class="flex items-center space-x-4 text-xs font-mono">
+          <div class="flex items-center space-x-1.5">
+            <span class="w-3 h-3 rounded bg-indigo-600 border border-indigo-400"></span>
+            <span class="text-slate-300">Allocated Process</span>
+          </div>
+          <div class="flex items-center space-x-1.5">
+            <span class="w-3 h-3 rounded bg-slate-900 bg-stripes-slate border border-slate-700"></span>
+            <span class="text-slate-300">Free RAM</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Address Scale Header -->
+      <div class="flex justify-between text-[11px] font-mono text-slate-500 px-1">
+        <span>0 KB</span>
+        <span id="scaleMid">500 KB</span>
+        <span id="scaleEnd">999 KB</span>
+      </div>
+
+      <!-- Dynamic Visual Memory Bar Container -->
+      <div id="memoryBar" class="w-full h-20 bg-slate-950 border border-slate-800 rounded-xl p-1 flex items-stretch gap-1 overflow-x-auto shadow-inner relative">
+        <!-- Rendered blocks -->
+      </div>
+
+      <!-- Hover Information Footer -->
+      <div id="blockHoverInfo" class="min-h-[24px] text-xs font-mono text-slate-400 flex items-center justify-between px-1">
+        <span class="text-slate-500 italic">Hover over any block above to inspect address range and exact size...</span>
+      </div>
+    </section>
+
+    <!-- Controls, Presets & CLI Section (2-Column Grid) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left Column: Controls & Presets (7 Cols) -->
+      <div class="lg:col-span-7 space-y-6">
+
+        <!-- Controls Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5 shadow">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="sliders" class="w-4 h-4 text-indigo-400"></i>
+              Memory Allocation Control Center
+            </h3>
+
+            <!-- Allocation Strategy Selector -->
+            <div class="flex items-center space-x-2">
+              <label for="strategySelect" class="text-xs font-medium text-slate-400">Strategy:</label>
+              <select id="strategySelect" onchange="changeStrategy(this.value)" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500">
+                <option value="FIRST_FIT">First Fit</option>
+                <option value="BEST_FIT">Best Fit</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Forms Grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+            <!-- Allocation Box -->
+            <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-3">
+              <div class="flex items-center space-x-2 text-xs font-bold text-indigo-300">
+                <i data-lucide="plus-circle" class="w-4 h-4 text-indigo-400"></i>
+                <span>ALLOCATE MEMORY</span>
+              </div>
+              <div class="space-y-2">
+                <div>
+                  <label class="block text-[11px] font-medium text-slate-400 mb-1">Process ID (PID)</label>
+                  <input type="text" id="allocPid" placeholder="e.g. P1" value="P1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 uppercase font-mono">
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium text-slate-400 mb-1">Size (KB)</label>
+                  <input type="number" id="allocSize" placeholder="e.g. 200" value="200" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono">
+                </div>
+                <button onclick="handleAllocSubmit()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-xs py-2 rounded-lg transition shadow-md shadow-indigo-600/20 flex items-center justify-center space-x-1.5">
+                  <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                  <span>Allocate Block</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Free Process Box -->
+            <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-3 flex flex-col justify-between">
+              <div class="space-y-3">
+                <div class="flex items-center space-x-2 text-xs font-bold text-rose-300">
+                  <i data-lucide="minus-circle" class="w-4 h-4 text-rose-400"></i>
+                  <span>FREE PROCESS</span>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium text-slate-400 mb-1">Select Process PID</label>
+                  <select id="freePidSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500 font-mono">
+                    <option value="">-- No Active Processes --</option>
+                  </select>
+                </div>
+              </div>
+              <button onclick="handleFreeSubmit()" class="w-full bg-slate-800 hover:bg-rose-950/80 hover:text-rose-200 border border-slate-700 hover:border-rose-700 text-slate-300 font-semibold text-xs py-2 rounded-lg transition flex items-center justify-center space-x-1.5">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                <span>Release Memory</span>
+              </button>
+            </div>
+
+          </div>
+
+          <!-- Compaction & Actions Toolbar -->
+          <div class="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center space-x-2">
+              <button onclick="executeCompaction()" class="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-200 font-semibold text-xs px-3.5 py-2 rounded-lg transition flex items-center space-x-2">
+                <i data-lucide="shrink" class="w-4 h-4 text-amber-400"></i>
+                <span>Compact Memory</span>
+              </button>
+              <button onclick="openResetModal()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold px-3.5 py-2 rounded-lg transition">
+                Clear All
+              </button>
+            </div>
+
+            <div class="text-xs text-slate-400 font-mono">
+              Coalescing: <span class="text-emerald-400 font-bold">AUTOMATIC</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scenario Presets -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="play-circle" class="w-4 h-4 text-indigo-400"></i>
+              Interactive Scenario Presets
+            </h3>
+            <span class="text-[11px] text-slate-400">Click to auto-run test workloads</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <button onclick="runPreset('frag')" class="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/40 rounded-xl text-left transition space-y-1 group">
+              <div class="text-xs font-bold text-amber-300 group-hover:text-amber-200 flex items-center gap-1.5">
+                <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>
+                <span>External Frag Test</span>
+              </div>
+              <p class="text-[11px] text-slate-400 leading-normal">Creates gaps and requests space to trigger fragmentation alert.</p>
+            </button>
+
+            <button onclick="runPreset('strategy_compare')" class="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-indigo-500/40 rounded-xl text-left transition space-y-1 group">
+              <div class="text-xs font-bold text-indigo-300 group-hover:text-indigo-200 flex items-center gap-1.5">
+                <i data-lucide="git-compare" class="w-3.5 h-3.5"></i>
+                <span>First vs Best Fit</span>
+              </div>
+              <p class="text-[11px] text-slate-400 leading-normal">Demonstrates allocation differences between algorithms.</p>
+            </button>
+
+            <button onclick="runPreset('heavy')" class="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-violet-500/40 rounded-xl text-left transition space-y-1 group">
+              <div class="text-xs font-bold text-violet-300 group-hover:text-violet-200 flex items-center gap-1.5">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                <span>Heavy Workload</span>
+              </div>
+              <p class="text-[11px] text-slate-400 leading-normal">Fills RAM near capacity and pushes overflow into queue.</p>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Interactive Command Terminal & Log (5 Cols) -->
+      <div class="lg:col-span-5 flex flex-col space-y-6">
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex-1 flex flex-col justify-between shadow-lg min-h-[440px]">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i>
+              <h3 class="text-sm font-bold text-white">Embedded CLI Terminal</h3>
+            </div>
+            <button onclick="clearLogs()" class="text-[11px] text-slate-400 hover:text-slate-200 hover:underline">
+              Clear Terminal
+            </button>
+          </div>
+
+          <!-- Console Screen -->
+          <div id="terminalLog" class="my-3 p-3 bg-slate-950 border border-slate-850 rounded-lg font-mono text-[11px] space-y-1.5 overflow-y-auto max-h-[340px] flex-1">
+            <div class="text-slate-500">// Virtual Memory Manager Shell v1.0</div>
+            <div class="text-slate-500">// Type 'HELP' to list supported commands (ALLOC, FREE, COMPACT, etc.).</div>
+          </div>
+
+          <!-- Command Input Form -->
+          <form onsubmit="handleCliCommand(event)" class="mt-2 flex items-center space-x-2">
+            <span class="text-emerald-400 font-mono text-xs font-bold">$</span>
+            <input type="text" id="cliInput" placeholder="ALLOC P1 200 | FREE P1 | COMPACT | HELP" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-emerald-300 placeholder-slate-600 font-mono focus:outline-none focus:border-emerald-500">
+            <button type="submit" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg font-mono">
+              Exec
+            </button>
+          </form>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Data Structures Inspection Tabs -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="network" class="w-4 h-4 text-indigo-400"></i>
+            Operating System Data Structures Visualizer
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">Inspect internal representation: Doubly Linked List, Process Lookup Hash Table, and Waiting Queue.</p>
+        </div>
+
+        <!-- Data Structure Tabs -->
+        <div class="flex items-center space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-medium">
+          <button id="dsTabBtnDll" onclick="switchDsTab('dll')" class="px-3 py-1.5 rounded-md text-slate-200 bg-slate-800 transition">
+            Doubly Linked List
+          </button>
+          <button id="dsTabBtnHash" onclick="switchDsTab('hash')" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition">
+            Process Hash Table
+          </button>
+          <button id="dsTabBtnQueue" onclick="switchDsTab('queue')" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition flex items-center space-x-1.5">
+            <span>Waiting Queue</span>
+            <span id="queueTabBadge" class="bg-amber-500/20 text-amber-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div id="dsTabContent" class="min-h-[160px]">
+        <!-- Dynamic rendering based on active tab -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Reset Modal -->
+  <div id="resetModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="rotate-ccw" class="w-5 h-5 text-indigo-400"></i>
+          Reset Memory Manager
+        </h3>
+        <button onclick="closeResetModal()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-300">
+        This will wipe all active process allocations, empty the blocked queue, and initialize a fresh contiguous memory layout.
+      </p>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Total Memory Capacity (KB)</label>
+        <input type="number" id="newMemSize" value="1000" min="100" max="10000" step="50" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500">
+      </div>
+
+      <div class="flex items-center justify-end space-x-3 pt-2">
+        <button onclick="closeResetModal()" class="px-4 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800">
+          Cancel
+        </button>
+        <button onclick="confirmResetMemory()" class="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md">
+          Reset System
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 bg-slate-900/60 py-4 mt-8">
+    <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 font-mono">
+      Virtual Memory Manager Simulator &bull; OS Memory Allocation, External Fragmentation & Compaction Visualizer
+    </div>
+  </footer>
+
+  <!-- Simulation JavaScript Logic -->
+  <script>
+    // Color Palette for Process UI Blocks
+    const PROCESS_COLORS = [
+      { bg: 'bg-indigo-600', border: 'border-indigo-400', text: 'text-white' },
+      { bg: 'bg-violet-600', border: 'border-violet-400', text: 'text-white' },
+      { bg: 'bg-cyan-600', border: 'border-cyan-400', text: 'text-white' },
+      { bg: 'bg-emerald-600', border: 'border-emerald-400', text: 'text-white' },
+      { bg: 'bg-amber-600', border: 'border-amber-400', text: 'text-white' },
+      { bg: 'bg-rose-600', border: 'border-rose-400', text: 'text-white' },
+      { bg: 'bg-sky-600', border: 'border-sky-400', text: 'text-white' },
+      { bg: 'bg-fuchsia-600', border: 'border-fuchsia-400', text: 'text-white' }
+    ];
+
+    function getProcessColor(pid) {
+      let hash = 0;
+      for (let i = 0; i < pid.length; i++) {
+        hash = pid.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const idx = Math.abs(hash) % PROCESS_COLORS.length;
+      return PROCESS_COLORS[idx];
+    }
+
+    // State & Data Structures
+    let totalMemorySize = 1000;
+    let strategy = 'FIRST_FIT'; // FIRST_FIT, BEST_FIT
+    let activeDsTab = 'dll'; // dll, hash, queue
+
+    // Doubly Linked List Pointers
+    let headNode = null;
+    let tailNode = null;
+
+    // Hash Table (PID -> Node)
+    let pidHashMap = {};
+
+    // Queue of { pid, size }
+    let waitingQueue = [];
+
+    let nodeCounter = 1;
+
+    function initMemoryManager(size) {
+      totalMemorySize = size;
+      nodeCounter = 1;
+
+      const initialBlock = {
+        id: nodeCounter++,
+        start: 0,
+        size: size,
+        isFree: true,
+        pid: '',
+        prev: null,
+        next: null
+      };
+
+      headNode = initialBlock;
+      tailNode = initialBlock;
+      pidHashMap = {};
+      waitingQueue = [];
+
+      updateUI();
+    }
+
+    // Allocation Strategies
+    function findSuitableBlock(size) {
+      let curr = headNode;
+      let chosen = null;
+
+      if (strategy === 'FIRST_FIT') {
+        while (curr !== null) {
+          if (curr.isFree && curr.size >= size) {
+            return curr;
+          }
+          curr = curr.next;
+        }
+      } else if (strategy === 'BEST_FIT') {
+        let minRemainder = Infinity;
+        while (curr !== null) {
+          if (curr.isFree && curr.size >= size) {
+            const remainder = curr.size - size;
+            if (remainder < minRemainder) {
+              minRemainder = remainder;
+              chosen = curr;
+            }
+          }
+          curr = curr.next;
+        }
+      }
+      return chosen;
+    }
+
+    // Core ALLOC Function
+    function allocateMemory(pid, size) {
+      pid = pid.trim().toUpperCase();
+      if (!pid) {
+        logToConsole('ERROR', 'Process ID cannot be empty.');
+        return false;
+      }
+      if (size <= 0) {
+        logToConsole('ERROR', 'Allocation size must be greater than 0 KB.');
+        return false;
+      }
+      if (pidHashMap[pid]) {
+        logToConsole('ERROR', `Process ${pid} is already residing in memory!`);
+        return false;
+      }
+
+      const target = findSuitableBlock(size);
+
+      if (target) {
+        if (target.size === size) {
+          target.isFree = false;
+          target.pid = pid;
+        } else {
+          // Split block into allocated target & remaining free block node
+          const newFreeBlock = {
+            id: nodeCounter++,
+            start: target.start + size,
+            size: target.size - size,
+            isFree: true,
+            pid: '',
+            prev: target,
+            next: target.next
+          };
+
+          if (target.next) {
+            target.next.prev = newFreeBlock;
+          } else {
+            tailNode = newFreeBlock;
+          }
+
+          target.next = newFreeBlock;
+          target.size = size;
+          target.isFree = false;
+          target.pid = pid;
+        }
+
+        // Add to Hash Map
+        pidHashMap[pid] = target;
+
+        logToConsole('SUCCESS', `Allocated ${size} KB to Process ${pid} at address [${target.start} - ${target.start + size - 1}].`);
+        updateUI();
+        return true;
+      } else {
+        const totalFree = getTotalFreeMemory();
+        const maxContig = getMaxContiguousFreeMemory();
+
+        logToConsole('WARNING', `Could not allocate ${size} KB for Process ${pid}.`);
+
+        if (totalFree >= size && maxContig < size) {
+          logToConsole('FRAG', `EXTERNAL FRAGMENTATION DETECTED! Total free memory is ${totalFree} KB, but maximum contiguous block is ${maxContig} KB.`);
+        } else {
+          logToConsole('INFO', `Insufficient total free memory (${totalFree} KB available vs ${size} KB requested).`);
+        }
+
+        // Push to waiting queue
+        waitingQueue.push({ pid, size });
+        logToConsole('QUEUE', `Process ${pid} (${size} KB) added to waiting queue.`);
+        updateUI();
+        return false;
+      }
+    }
+
+    // Core FREE Function
+    function freeMemory(pid) {
+      pid = pid.trim().toUpperCase();
+      const targetNode = pidHashMap[pid];
+
+      if (!targetNode) {
+        logToConsole('ERROR', `Process ${pid} not found in memory.`);
+        return false;
+      }
+
+      const freedSize = targetNode.size;
+      targetNode.isFree = true;
+      targetNode.pid = '';
+      delete pidHashMap[pid];
+
+      logToConsole('SUCCESS', `Process ${pid} released ${freedSize} KB of memory.`);
+
+      // Coalescing adjacent free blocks
+      if (targetNode.next && targetNode.next.isFree) {
+        const nextNode = targetNode.next;
+        targetNode.size += nextNode.size;
+        targetNode.next = nextNode.next;
+        if (nextNode.next) {
+          nextNode.next.prev = targetNode;
+        } else {
+          tailNode = targetNode;
+        }
+      }
+
+      if (targetNode.prev && targetNode.prev.isFree) {
+        const prevNode = targetNode.prev;
+        prevNode.size += targetNode.size;
+        prevNode.next = targetNode.next;
+        if (targetNode.next) {
+          targetNode.next.prev = prevNode;
+        } else {
+          tailNode = prevNode;
+        }
+      }
+
+      updateUI();
+      serviceWaitingQueue();
+      return true;
+    }
+
+    // Compaction Function
+    function executeCompaction() {
+      logToConsole('COMPACT', 'Executing memory compaction...');
+
+      let curr = headNode;
+      let currentAddr = 0;
+      let totalFree = 0;
+
+      while (curr !== null) {
+        const nextNode = curr.next;
+
+        if (curr.isFree) {
+          totalFree += curr.size;
+
+          if (curr.prev) curr.prev.next = curr.next;
+          else headNode = curr.next;
+
+          if (curr.next) curr.next.prev = curr.prev;
+          else tailNode = curr.prev;
+
+        } else {
+          curr.start = currentAddr;
+          currentAddr += curr.size;
+        }
+
+        curr = nextNode;
+      }
+
+      if (headNode === null) {
+        const newFreeBlock = {
+          id: nodeCounter++,
+          start: 0,
+          size: totalFree,
+          isFree: true,
+          pid: '',
+          prev: null,
+          next: null
+        };
+        headNode = newFreeBlock;
+        tailNode = newFreeBlock;
+      } else if (totalFree > 0) {
+        const mergedFreeBlock = {
+          id: nodeCounter++,
+          start: currentAddr,
+          size: totalFree,
+          isFree: true,
+          pid: '',
+          prev: tailNode,
+          next: null
+        };
+        tailNode.next = mergedFreeBlock;
+        tailNode = mergedFreeBlock;
+      }
+
+      logToConsole('COMPACT', `Compaction complete! Consolidated free space into a single ${totalFree} KB block.`);
+      updateUI();
+      serviceWaitingQueue();
+    }
+
+    function serviceWaitingQueue() {
+      if (waitingQueue.length === 0) return;
+
+      logToConsole('QUEUE', `Checking waiting queue (${waitingQueue.length} processes)...`);
+      const originalQueue = [...waitingQueue];
+      waitingQueue = [];
+
+      for (let i = 0; i < originalQueue.length; i++) {
+        const req = originalQueue[i];
+        const target = findSuitableBlock(req.size);
+        if (target) {
+          logToConsole('QUEUE', `Servicing queued Process ${req.pid} (${req.size} KB)...`);
+          allocateMemory(req.pid, req.size);
+        } else {
+          waitingQueue.push(req);
+        }
+      }
+      updateUI();
+    }
+
+    // Calculations
+    function getTotalFreeMemory() {
+      let total = 0;
+      let curr = headNode;
+      while (curr !== null) {
+        if (curr.isFree) total += curr.size;
+        curr = curr.next;
+      }
+      return total;
+    }
+
+    function getMaxContiguousFreeMemory() {
+      let maxContig = 0;
+      let curr = headNode;
+      while (curr !== null) {
+        if (curr.isFree && curr.size > maxContig) {
+          maxContig = curr.size;
+        }
+        curr = curr.next;
+      }
+      return maxContig;
+    }
+
+    function checkExternalFragmentation() {
+      if (waitingQueue.length === 0) return false;
+      const totalFree = getTotalFreeMemory();
+      const maxContig = getMaxContiguousFreeMemory();
+
+      for (let req of waitingQueue) {
+        if (totalFree >= req.size && maxContig < req.size) {
+          return { req, totalFree, maxContig };
+        }
+      }
+      return false;
+    }
+
+    // Rendering Logic
+    function updateUI() {
+      renderMetrics();
+      renderMemoryBar();
+      renderFreePidDropdown();
+      renderDsTabContent();
+      checkAndShowFragAlert();
+      lucide.createIcons();
+    }
+
+    function renderMetrics() {
+      const totalFree = getTotalFreeMemory();
+      const usedMemory = totalMemorySize - totalFree;
+      const usedPct = Math.round((usedMemory / totalMemorySize) * 100);
+      const freePct = 100 - usedPct;
+      const maxContig = getMaxContiguousFreeMemory();
+
+      let blockCount = 0;
+      let freeBlockCount = 0;
+      let curr = headNode;
+      while (curr !== null) {
+        blockCount++;
+        if (curr.isFree) freeBlockCount++;
+        curr = curr.next;
+      }
+
+      document.getElementById('metricTotal').innerText = totalMemorySize;
+      document.getElementById('metricUsed').innerText = usedMemory;
+      document.getElementById('metricUsedPct').innerText = `${usedPct}%`;
+      document.getElementById('barUsed').style.width = `${usedPct}%`;
+
+      document.getElementById('metricFree').innerText = totalFree;
+      document.getElementById('metricFreePct').innerText = `${freePct}%`;
+      document.getElementById('barFree').style.width = `${freePct}%`;
+
+      document.getElementById('metricMaxContig').innerText = maxContig;
+      document.getElementById('metricBlocks').innerText = blockCount;
+      document.getElementById('metricBlocksSub').innerText = `${freeBlockCount} Free`;
+      document.getElementById('metricQueue').innerText = waitingQueue.length;
+      document.getElementById('queueTabBadge').innerText = waitingQueue.length;
+
+      document.getElementById('scaleMid').innerText = `${Math.round(totalMemorySize / 2)} KB`;
+      document.getElementById('scaleEnd').innerText = `${totalMemorySize - 1} KB`;
+      document.getElementById('activeStrategyBadge').innerText = strategy.replace('_', ' ');
+    }
+
+    function renderMemoryBar() {
+      const container = document.getElementById('memoryBar');
+      container.innerHTML = '';
+
+      let curr = headNode;
+      while (curr !== null) {
+        const node = curr; // Capture node reference for closure scope
+        const pct = (node.size / totalMemorySize) * 100;
+        const div = document.createElement('div');
+        div.style.width = `${pct}%`;
+        div.className = 'h-full rounded-lg transition-all duration-300 relative flex flex-col justify-center items-center text-center px-1 overflow-hidden group cursor-pointer border select-none shrink-0';
+
+        if (node.isFree) {
+          div.className += ' bg-slate-900 bg-stripes-slate border-slate-800 text-slate-500 hover:border-slate-600';
+          div.innerHTML = `
+            <span class="text-[10px] font-mono font-semibold truncate ${pct < 4 ? 'hidden' : ''}">FREE</span>
+            <span class="text-[9px] font-mono opacity-75 truncate ${pct < 8 ? 'hidden' : ''}">${node.size} KB</span>
+          `;
+        } else {
+          const color = getProcessColor(node.pid);
+          div.className += ` ${color.bg} ${color.border} ${color.text} shadow-md hover:brightness-110`;
+          div.onclick = (e) => {
+            e.stopPropagation();
+            freeMemory(node.pid);
+          };
+          div.innerHTML = `
+            <span class="text-xs font-mono font-bold truncate ${pct < 3 ? 'hidden' : ''}">${node.pid}</span>
+            <span class="text-[9px] font-mono opacity-90 truncate ${pct < 7 ? 'hidden' : ''}">${node.size} KB</span>
+          `;
+        }
+
+        const startAddr = node.start;
+        const endAddr = node.start + node.size - 1;
+        const pidText = node.isFree ? 'FREE BLOCK' : `PROCESS ${node.pid}`;
+
+        div.onmouseenter = () => {
+          document.getElementById('blockHoverInfo').innerHTML = `
+            <span class="text-slate-200 font-semibold">${pidText}</span>
+            <span>Range: <strong class="text-indigo-300">[${startAddr} - ${endAddr}]</strong></span>
+            <span>Size: <strong class="text-cyan-300">${node.size} KB</strong> (${pct.toFixed(1)}%)</span>
+            <span class="text-slate-400 font-sans">${node.isFree ? '(Free Memory Block)' : '(Click to Release)'}</span>
+          `;
+        };
+
+        div.onmouseleave = () => {
+          document.getElementById('blockHoverInfo').innerHTML = `
+            <span class="text-slate-500 italic">Hover over any block above to inspect address range and exact size...</span>
+          `;
+        };
+
+        container.appendChild(div);
+        curr = curr.next;
+      }
+    }
+
+    function renderFreePidDropdown() {
+      const select = document.getElementById('freePidSelect');
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">-- Select Process --</option>';
+
+      Object.keys(pidHashMap).sort().forEach(pid => {
+        const node = pidHashMap[pid];
+        const opt = document.createElement('option');
+        opt.value = pid;
+        opt.innerText = `${pid} (${node.size} KB @ [${node.start} - ${node.start + node.size - 1}])`;
+        select.appendChild(opt);
+      });
+
+      select.value = pidHashMap[currentVal] ? currentVal : '';
+    }
+
+    function switchDsTab(tab) {
+      activeDsTab = tab;
+      document.getElementById('dsTabBtnDll').className = tab === 'dll' ? 'px-3 py-1.5 rounded-md text-slate-200 bg-slate-800 transition' : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition';
+      document.getElementById('dsTabBtnHash').className = tab === 'hash' ? 'px-3 py-1.5 rounded-md text-slate-200 bg-slate-800 transition' : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition';
+      document.getElementById('dsTabBtnQueue').className = tab === 'queue' ? 'px-3 py-1.5 rounded-md text-slate-200 bg-slate-800 transition flex items-center space-x-1.5' : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition flex items-center space-x-1.5';
+      renderDsTabContent();
+    }
+
+    function renderDsTabContent() {
+      const container = document.getElementById('dsTabContent');
+
+      if (activeDsTab === 'dll') {
+        // Render Doubly Linked List View with Pointers
+        let html = `<div class="flex items-center gap-3 overflow-x-auto py-3 min-h-[140px]">`;
+        let curr = headNode;
+        while (curr !== null) {
+          const prevText = curr.prev ? `Node #${curr.prev.id}` : 'null (HEAD)';
+          const nextText = curr.next ? `Node #${curr.next.id}` : 'null (TAIL)';
+          const badge = curr.isFree
+            ? `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">FREE</span>`
+            : `<span class="px-2 py-0.5 rounded text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold">${curr.pid}</span>`;
+
+          html += `
+            <div class="bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl p-3 min-w-[200px] shrink-0 font-mono text-xs space-y-2 shadow">
+              <div class="flex items-center justify-between pb-1.5 border-b border-slate-850">
+                <span class="text-slate-400 text-[11px]">Node #${curr.id}</span>
+                ${badge}
+              </div>
+              <div class="space-y-1 text-[11px]">
+                <div class="flex justify-between"><span class="text-slate-500">Address:</span> <span class="text-slate-200">[${curr.start} - ${curr.start + curr.size - 1}]</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Size:</span> <span class="text-cyan-400 font-bold">${curr.size} KB</span></div>
+              </div>
+              <div class="pt-1 border-t border-slate-850 text-[10px] flex justify-between text-slate-500">
+                <span>P: <strong class="text-slate-400">${prevText}</strong></span>
+                <span>N: <strong class="text-slate-400">${nextText}</strong></span>
+              </div>
+            </div>
+          `;
+
+          if (curr.next) {
+            html += `<div class="text-slate-600 font-mono text-xs font-bold shrink-0">&lt;---&gt;</div>`;
+          }
+          curr = curr.next;
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+
+      } else if (activeDsTab === 'hash') {
+        // Render Process Hash Table Map View
+        const pids = Object.keys(pidHashMap).sort();
+        if (pids.length === 0) {
+          container.innerHTML = `<div class="py-6 text-center text-xs text-slate-500 italic font-mono">Hash table is empty. No active processes allocated in RAM.</div>`;
+          return;
+        }
+
+        let html = `
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs font-mono">
+              <thead>
+                <tr class="border-b border-slate-800 text-slate-400 bg-slate-950/50">
+                  <th class="py-2 px-3">Process ID (Key)</th>
+                  <th class="py-2 px-3">DLL Node ID</th>
+                  <th class="py-2 px-3">Address Range</th>
+                  <th class="py-2 px-3">Block Size</th>
+                  <th class="py-2 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60 text-slate-300">
+        `;
+
+        pids.forEach(pid => {
+          const node = pidHashMap[pid];
+          html += `
+            <tr class="hover:bg-slate-800/30">
+              <td class="py-2 px-3 font-bold text-indigo-400">${pid}</td>
+              <td class="py-2 px-3 text-slate-400">Node #${node.id}</td>
+              <td class="py-2 px-3">[${node.start} - ${node.start + node.size - 1}]</td>
+              <td class="py-2 px-3 text-cyan-400">${node.size} KB</td>
+              <td class="py-2 px-3 text-right">
+                <button onclick="freeMemory('${pid}')" class="text-xs text-rose-400 hover:underline font-sans">Release</button>
+              </td>
+            </tr>
+          `;
+        });
+
+        html += `</tbody></table></div>`;
+        container.innerHTML = html;
+
+      } else if (activeDsTab === 'queue') {
+        // Render Waiting Queue View
+        if (waitingQueue.length === 0) {
+          container.innerHTML = `<div class="py-6 text-center text-xs text-slate-500 italic font-mono">Waiting queue is empty. All processes serviced.</div>`;
+          return;
+        }
+
+        let html = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 py-2">`;
+        waitingQueue.forEach((item, idx) => {
+          html += `
+            <div class="bg-slate-950 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between font-mono text-xs shadow-sm">
+              <div class="space-y-0.5">
+                <div class="flex items-center space-x-2">
+                  <span class="text-amber-400 font-bold">#${idx + 1}</span>
+                  <span class="text-white font-bold">${item.pid}</span>
+                </div>
+                <div class="text-[11px] text-slate-400">Requested: <span class="text-amber-300">${item.size} KB</span></div>
+              </div>
+              <button onclick="removeFromQueue(${idx})" class="text-slate-500 hover:text-rose-400 p-1" title="Cancel Request">
+                <i data-lucide="x-circle" class="w-4 h-4"></i>
+              </button>
+            </div>
+          `;
+        });
+        html += `</div>`;
+        container.innerHTML = html;
+      }
+    }
+
+    function removeFromQueue(index) {
+      const removed = waitingQueue.splice(index, 1);
+      if (removed.length > 0) {
+        logToConsole('QUEUE', `Removed process ${removed[0].pid} from waiting queue.`);
+        updateUI();
+      }
+    }
+
+    function checkAndShowFragAlert() {
+      const fragInfo = checkExternalFragmentation();
+      const alertDiv = document.getElementById('fragAlert');
+      const alertText = document.getElementById('fragAlertText');
+
+      if (fragInfo) {
+        alertText.innerText = `Process ${fragInfo.req.pid} requires ${fragInfo.req.size} KB. Total free memory is ${fragInfo.totalFree} KB, but maximum contiguous free block is only ${fragInfo.maxContig} KB.`;
+        alertDiv.classList.remove('hidden');
+      } else {
+        alertDiv.classList.add('hidden');
+      }
+    }
+
+    // Terminal Logging
+    function logToConsole(type, message) {
+      const term = document.getElementById('terminalLog');
+      const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      let tagClass = 'text-slate-400';
+      let prefix = '[INFO]';
+
+      if (type === 'SUCCESS') {
+        tagClass = 'text-emerald-400';
+        prefix = '[SUCCESS]';
+      } else if (type === 'ERROR') {
+        tagClass = 'text-rose-400';
+        prefix = '[ERROR]';
+      } else if (type === 'WARNING') {
+        tagClass = 'text-amber-400';
+        prefix = '[WARN]';
+      } else if (type === 'FRAG') {
+        tagClass = 'text-amber-300 font-bold';
+        prefix = '[EXTERNAL FRAG]';
+      } else if (type === 'COMPACT') {
+        tagClass = 'text-cyan-400 font-bold';
+        prefix = '[COMPACTION]';
+      } else if (type === 'QUEUE') {
+        tagClass = 'text-violet-400';
+        prefix = '[QUEUE]';
+      }
+
+      const row = document.createElement('div');
+      row.className = 'leading-relaxed';
+      row.innerHTML = `<span class="text-slate-600">${time}</span> <span class="${tagClass}">${prefix}</span> ${escapeHtml(message)}`;
+
+      term.appendChild(row);
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById('terminalLog').innerHTML = `
+        <div class="text-slate-500">// Terminal log cleared.</div>
+      `;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // Forms & Input Handlers
+    function handleAllocSubmit() {
+      const pidInput = document.getElementById('allocPid');
+      const sizeInput = document.getElementById('allocSize');
+      const pid = pidInput.value;
+      const size = parseInt(sizeInput.value);
+
+      if (allocateMemory(pid, size)) {
+        const match = pid.match(/^P(\d+)$/i);
+        if (match) {
+          pidInput.value = `P${parseInt(match[1]) + 1}`;
+        }
+      }
+    }
+
+    function handleFreeSubmit() {
+      const select = document.getElementById('freePidSelect');
+      const pid = select.value;
+      if (pid) freeMemory(pid);
+      else logToConsole('ERROR', 'Please select a valid process to free.');
+    }
+
+    function changeStrategy(newStrat) {
+      strategy = newStrat;
+      logToConsole('SYSTEM', `Allocation strategy changed to ${newStrat.replace('_', ' ')}.`);
+      updateUI();
+    }
+
+    // Interactive CLI Terminal Parsing
+    function handleCliCommand(e) {
+      e.preventDefault();
+      const input = document.getElementById('cliInput');
+      const cmdStr = input.value.trim();
+      if (!cmdStr) return;
+
+      logToConsole('SYSTEM', `$ ${cmdStr}`);
+      input.value = '';
+
+      const parts = cmdStr.split(/\s+/);
+      const action = parts[0].toUpperCase();
+
+      if (action === 'ALLOC' || action === 'ALLOCATE') {
+        if (parts.length >= 3) {
+          allocateMemory(parts[1], parseInt(parts[2]));
+        } else {
+          logToConsole('ERROR', 'Usage: ALLOC <PID> <SIZE>');
+        }
+      } else if (action === 'FREE') {
+        if (parts.length >= 2) {
+          freeMemory(parts[1]);
+        } else {
+          logToConsole('ERROR', 'Usage: FREE <PID>');
+        }
+      } else if (action === 'COMPACT') {
+        executeCompaction();
+      } else if (action === 'STRATEGY') {
+        if (parts[1]) {
+          const s = parts[1].toUpperCase();
+          if (s === 'FIRST' || s === 'FIRST_FIT') changeStrategy('FIRST_FIT');
+          else if (s === 'BEST' || s === 'BEST_FIT') changeStrategy('BEST_FIT');
+          document.getElementById('strategySelect').value = strategy;
+        } else {
+          logToConsole('INFO', `Current strategy: ${strategy}`);
+        }
+      } else if (action === 'LIST') {
+        logToConsole('INFO', `Allocated processes: ${Object.keys(pidHashMap).join(', ') || 'None'}`);
+      } else if (action === 'HELP') {
+        logToConsole('INFO', 'Available Commands: ALLOC <PID> <SIZE>, FREE <PID>, COMPACT, STRATEGY <FIRST|BEST>, LIST, CLEAR');
+      } else if (action === 'CLEAR') {
+        clearLogs();
+      } else {
+        logToConsole('ERROR', `Unknown command '${action}'. Type HELP for options.`);
+      }
+    }
+
+    // Presets
+    function runPreset(type) {
+      initMemoryManager(1000);
+
+      if (type === 'frag') {
+        logToConsole('SYSTEM', '--- Scenario: External Fragmentation Trigger ---');
+        allocateMemory('P1', 250);
+        allocateMemory('P2', 200);
+        allocateMemory('P3', 300);
+        allocateMemory('P4', 150);
+        freeMemory('P2');
+        freeMemory('P4');
+        logToConsole('SYSTEM', 'Requesting 300 KB for P5...');
+        allocateMemory('P5', 300);
+      } else if (type === 'strategy_compare') {
+        logToConsole('SYSTEM', `--- Scenario: Strategy Test (Current: ${strategy}) ---`);
+        allocateMemory('P1', 300);
+        allocateMemory('P2', 150);
+        allocateMemory('P3', 400);
+        freeMemory('P1'); // Hole of 300 at [0-299]
+        // Allocate P4 100 KB
+        allocateMemory('P4', 100);
+        logToConsole('SYSTEM', `Under ${strategy}, P4 was allocated according to current policy.`);
+      } else if (type === 'heavy') {
+        logToConsole('SYSTEM', '--- Scenario: Heavy Workload ---');
+        allocateMemory('P1', 300);
+        allocateMemory('P2', 250);
+        allocateMemory('P3', 200);
+        allocateMemory('P4', 150);
+        allocateMemory('P5', 200); // Overflow into queue
+      }
+    }
+
+    // Modal Handlers
+    function openResetModal() {
+      document.getElementById('resetModal').classList.remove('hidden');
+    }
+    function closeResetModal() {
+      document.getElementById('resetModal').classList.add('hidden');
+    }
+    function confirmResetMemory() {
+      const val = parseInt(document.getElementById('newMemSize').value);
+      if (val >= 100) {
+        initMemoryManager(val);
+        closeResetModal();
+        logToConsole('SYSTEM', `Reset memory system to ${val} KB.`);
+      }
+    }
+
+    // On Load
+    window.onload = function() {
+      initMemoryManager(1000);
+    };
+  </script>
+</body>
+</html>
